@@ -15,9 +15,10 @@ This package provides a cloud-side **Physics-Informed Digital Twin (DT)** that e
     └── Determines Sync Status: SYNCHRONIZED | PARTIALLY_SYNCHRONIZED | STALE | DISCONNECTED
              |
              v
-[ Physics-Informed Nominal Model / State Estimator ]
-    ├── Predicts Nominal State: x^(k+1) = f(x^(k), u(k), dt)
-    └── Updates with Valid Non-Stale Telemetry
+[ Digital Twin State Estimator (`digital_twin/state_estimator.py`) ]
+    ├── Ingests Valid, Chronological Telemetry Updates
+    ├── Rejects Stale / Out-of-Order / Duplicate Packets
+    └── Fuses Nominal Physical Model Forward Predictions
              |
              v
 [ Expected Measurement Synthesizer ]
@@ -35,9 +36,21 @@ This package provides a cloud-side **Physics-Informed Digital Twin (DT)** that e
 
 ---
 
-## 🔬 2. Physics-Informed Nominal Model Equations (`digital_twin/nominal_model.py`)
+## 📥 2. Telemetry Acceptance & Staleness Rejection Policies
 
-The nominal model implements a deterministic discrete-time observer:
+1. **Duplicate Rejection:** Packets with already-observed `packet_id` or `(sensor_name, sequence_number)` are rejected and logged.
+2. **Stale / Out-of-Order Rejection:** If $t_{\text{generation}} < t_{\text{last\_accepted\_gen}}$, the packet is rejected from updating the state and recorded as stale/out-of-order. The estimator never moves backward in simulation time.
+3. **Valid Telemetry Assimilation:**
+   - If $t_{\text{generation}} > t_{\text{current\_state}}$, the estimator predicts the nominal model forward to $t_{\text{generation}}$ and updates corresponding state fields.
+4. **Synchronization State Machine:**
+   - `INITIALIZING`: No valid telemetry ingested yet.
+   - `SYNCHRONIZED`: Time since last observation $\le \text{stale\_aoi\_threshold\_s}$ ($3.0\text{s}$).
+   - `STALE`: Time since last observation $> 3.0\text{s}$.
+   - `DISCONNECTED`: Time since last observation $> \text{disconnect\_aoi\_threshold\_s}$ ($10.0\text{s}$).
+
+---
+
+## 🔬 3. Physics-Informed Nominal Model Equations (`digital_twin/nominal_model.py`)
 
 $$\hat{x}_{k+1} = f(\hat{x}_k, u_k, \Delta t)$$
 
@@ -50,15 +63,11 @@ $$\dot{Q}_{\text{out}} = (k_{\text{nat}} + k_{\text{speed}} \cdot v + k_{\text{f
 
 $$\Delta T = \left(\frac{\dot{Q}_{\text{in}} - \dot{Q}_{\text{out}}}{C_{\text{thermal}}}\right) \cdot \Delta t$$
 
-### Thermostat Control Logic
-- **Fan Engagement:** Turns ON ($1$) when $T \ge 95^\circ\text{C}$.
-- **Fan Disengagement:** Turns OFF ($0$) when $T \le 90^\circ\text{C}$ (hysteresis).
-
 ---
 
-## 📊 3. Core Data Models (`digital_twin/models.py`)
+## 📊 4. Core Data Models (`digital_twin/models.py`)
 
-- **`DigitalTwinState`:** Represents the estimated state ($\hat{x}$) of the vehicle, including estimated speed, RPM, load, thermal temperature, fan status, and synchronization health.
+- **`DigitalTwinState`:** Represents the estimated state ($\hat{x}$) of the vehicle.
 - **`ExpectedMeasurement`:** Represents the nominal output ($\hat{y}$) synthesized by the physical observer.
 - **`SensorResidual`:** Stores the evaluated discrepancy $r = y - \hat{y}$, data age ($\text{AoI}$), staleness flags, and anomaly status.
 - **`SynchronizationStatus`:** Tracks connectivity quality: `INITIALIZING`, `SYNCHRONIZED`, `PARTIALLY_SYNCHRONIZED`, `STALE`, and `DISCONNECTED`.
@@ -66,25 +75,25 @@ $$\Delta T = \left(\frac{\dot{Q}_{\text{in}} - \dot{Q}_{\text{out}}}{C_{\text{th
 
 ---
 
-## ⚙️ 4. Configuration Reference (`digital_twin/twin_config.py`)
+## ⚙️ 5. Usage Example
 
 ```python
-from digital_twin import DigitalTwinConfig, ResidualThresholds, SynchronizationThresholds, NominalVehicleModel
+from digital_twin import DigitalTwinConfig, DigitalTwinStateEstimator
+from network import NetworkPacket
 
-config = DigitalTwinConfig(
+estimator = DigitalTwinStateEstimator()
+
+# Process incoming telemetry packet arrived at reception time t=1.1s
+packet = NetworkPacket(
+    packet_id="pkt_001",
     vehicle_id="EV_001",
-    initial_temp_c=85.0,
-    thresholds=ResidualThresholds(
-        engine_temperature_c=8.0, # Flag anomaly if |r_temp| > 8.0°C
-        rpm=350.0,
-        speed_kmh=12.0,
-        engine_load=0.20,
-    ),
-    sync_thresholds=SynchronizationThresholds(
-        stale_aoi_threshold_s=3.0,
-        disconnect_aoi_threshold_s=10.0,
-    ),
+    sensor_name="engine_temperature_c",
+    value=91.5,
+    generation_timestamp=1.0,
+    sequence_number=1,
 )
 
-nominal_model = NominalVehicleModel(config=config)
+accepted = estimator.update_from_packet(packet, reception_time=1.1)
+state = estimator.get_state()
+expected = estimator.get_expected_measurements()
 ```
