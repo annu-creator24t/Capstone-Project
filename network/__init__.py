@@ -29,6 +29,7 @@ from network.aoi_tracker import (
     SensorAoIState,
 )
 from network.packet_queue import PacketQueue
+from network.network_emulator import NetworkEmulator
 from network.network_config import NetworkConfig
 
 __all__ = [
@@ -53,5 +54,6 @@ __all__ = [
     "AoITracker",
     "SensorAoIState",
     "PacketQueue",
+    "NetworkEmulator",
     "NetworkConfig",
 ]

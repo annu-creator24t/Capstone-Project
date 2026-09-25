@@ -10,6 +10,11 @@ This package provides a high-fidelity, configurable communication layer that sim
 [ Vehicle Telemetry Observation (generation_timestamp) ]
              |
              v
+[ NetworkEmulator.ingest_telemetry_frame() ]
+    ├── Split into discrete sensor packets (temperature, RPM, speed, load, fan)
+    └── Assign monotonically increasing sequence numbers
+             |
+             v
 [ Packet Loss Evaluation ] ──(Dropped)──> [ Dropped Packets Log (Status: DROPPED) ]
              |
           (Passed)
@@ -82,45 +87,39 @@ where $u_{v, s}(t) = \max \{ t_{\text{generation}} : \text{valid non-stale updat
 
 ---
 
-## ⚙️ 4. Configuration Reference
+## ⚙️ 4. Quickstart & Integration Example
 
 ```python
-from network import (
-    NetworkConfig,
-    DelayConfig,
-    DelayMode,
-    PacketLossConfig,
-    OrderingConfig,
-    OrderingPolicy,
-    BandwidthConfig,
-    QuotaAction,
-    PacketQueue,
-)
+from network import NetworkEmulator, NetworkConfig, DelayConfig, DelayMode, PacketLossConfig, BandwidthConfig
+from simulator.vehicle_model import VehicleModel
+from simulator.sensor_generator import SensorGenerator
+from simulator.fault_injector import FaultInjector, FaultConfig, FaultType
 
-# Example: Configure cellular link with 64 kbps uplink, 10% packet loss, 50-200ms uniform jitter, and byte quota
+# Configure cellular network with 64 kbps uplink, 10% packet loss, 50-200ms jitter
 config = NetworkConfig(
     seed=42,
-    delay=DelayConfig(
-        mode=DelayMode.UNIFORM,
-        min_delay_ms=50.0,
-        max_delay_ms=200.0,
-    ),
-    packet_loss=PacketLossConfig(
-        enabled=True,
-        probability=0.10,
-    ),
-    ordering=OrderingConfig(
-        policy=OrderingPolicy.TIMESTAMP_AWARE,
-        reject_stale=False,
-    ),
-    bandwidth=BandwidthConfig(
-        enabled=True,
-        bandwidth_bps=64000.0, # 64 kbps
-        quota_bytes=5000,      # 5 KB per window
-        quota_window_seconds=10.0,
-        quota_action=QuotaAction.DELAY_TO_NEXT_WINDOW,
-    ),
+    delay=DelayConfig(mode=DelayMode.UNIFORM, min_delay_ms=50.0, max_delay_ms=200.0),
+    packet_loss=PacketLossConfig(enabled=True, probability=0.10),
+    bandwidth=BandwidthConfig(enabled=True, bandwidth_bps=64000.0),
 )
 
-queue = PacketQueue(config=config)
+emulator = NetworkEmulator(config=config)
+vehicle = VehicleModel()
+injector = FaultInjector(FaultConfig(fault_type=FaultType.NORMAL))
+sensor_gen = SensorGenerator(random_seed=42)
+
+# Step simulation and stream through network emulator
+for step in range(30):
+    t = float(step)
+    state = vehicle.step(dt_seconds=1.0)
+    telemetry = sensor_gen.generate(state, injector)
+    
+    # 1. Ingest into cellular emulator
+    emulator.ingest_telemetry_frame(telemetry, current_time=t)
+    
+    # 2. Extract delivered packets at cloud receiver
+    delivered_packets = emulator.advance_time(current_time=t + 0.1)
+    
+    # 3. Query telemetry freshness
+    aoi_temp = emulator.get_current_aoi("EV_001", "engine_temperature_c", current_time=t + 0.1)
 ```

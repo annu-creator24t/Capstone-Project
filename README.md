@@ -144,10 +144,10 @@ We position this project with scientific rigor and honest claim-level comparison
 ## 🗺️ 6. Phased Roadmap
 
 - [x] **Phase 1:** Repository Initialization & Module 1 (Vehicle Simulator & Fault Injection Core)
-- [ ] **Phase 2:** Intermittent Network Emulator (Delay, Loss, AoI tracking)
-- [ ] **Phase 3:** Cloud Digital Twin State Estimator & Residual Generator
-- [ ] **Phase 4:** Multi-Hypothesis Bayesian Fault Belief Tracker
-- [ ] **Phase 5:** Uncertainty- and Cost-Aware Active Diagnostic Action Engine
-- [ ] **Phase 6:** Comparative Benchmark Suite (Baselines vs. Proposed ADT)
-- [ ] **Phase 7:** Interactive Web Analytics Dashboard
-- [ ] **Phase 8:** Academic Manuscript & Patentability Comparison Dossier
+- [x] **Phase 2:** Module 2 — Intermittent Network Emulator (Delay, Loss, Queues, Bandwidth, AoI tracking)
+- [ ] **Phase 3:** Module 3 — Cloud Digital Twin State Estimator & Residual Generator
+- [ ] **Phase 4:** Module 4 — Multi-Hypothesis Bayesian Fault Belief Tracker
+- [ ] **Phase 5:** Module 5 — Uncertainty- and Cost-Aware Active Diagnostic Action Engine
+- [ ] **Phase 6:** Module 6 — Comparative Benchmark Suite (Baselines vs. Proposed ADT)
+- [ ] **Phase 7:** Module 7 — Interactive Web Analytics Dashboard
+- [ ] **Phase 8:** Module 8 — Academic Manuscript & Patentability Comparison Dossier
