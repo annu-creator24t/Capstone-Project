@@ -1,0 +1,4 @@
+# Core dependencies for Python vehicle simulation, digital twin, and analytics
+pydantic>=2.0.0
+numpy>=1.22.0
+pytest>=7.0.0
