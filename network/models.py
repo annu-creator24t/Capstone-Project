@@ -15,6 +15,7 @@ class DeliveryStatus(str, Enum):
     IN_TRANSIT = "in_transit"
     DELIVERED = "delivered"
     DROPPED = "dropped"
+    QUOTA_BLOCKED = "quota_blocked"
 
 
 @dataclass
@@ -29,10 +30,12 @@ class NetworkPacket:
         generation_timestamp: Logical simulation time (s) when the measurement was taken.
         sequence_number: Monotonically increasing sequence number per sensor/vehicle.
         size_bytes: Estimated size of the serialized network packet in bytes.
-        transmission_timestamp: Simulation time (s) when packet leaves vehicle buffer.
-        scheduled_delivery_timestamp: Simulation time (s) when packet is scheduled to arrive.
-        reception_timestamp: Actual simulation time (s) when packet arrives at receiver.
-        status: Current delivery status (QUEUED, IN_TRANSIT, DELIVERED, DROPPED).
+        queue_entry_timestamp: Simulation time (s) when packet entered the transmission queue.
+        transmission_timestamp: Simulation time (s) when serialization begins on the link.
+        transmission_completion_timestamp: Simulation time (s) when serialization finishes.
+        scheduled_delivery_timestamp: Simulation time (s) when packet arrives after propagation.
+        reception_timestamp: Actual simulation time (s) when packet is ingested by receiver.
+        status: Current delivery status (QUEUED, IN_TRANSIT, DELIVERED, DROPPED, QUOTA_BLOCKED).
     """
     packet_id: str
     vehicle_id: str
@@ -41,7 +44,9 @@ class NetworkPacket:
     generation_timestamp: float
     sequence_number: int
     size_bytes: int = 128
+    queue_entry_timestamp: Optional[float] = None
     transmission_timestamp: Optional[float] = None
+    transmission_completion_timestamp: Optional[float] = None
     scheduled_delivery_timestamp: Optional[float] = None
     reception_timestamp: Optional[float] = None
     status: DeliveryStatus = DeliveryStatus.QUEUED

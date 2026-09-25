@@ -1,26 +1,29 @@
 """Packet Queue and Delivery Pipeline for Connected Vehicle Telemetry.
 
-Manages scheduling, packet loss evaluation, stochastic latency application,
-and chronological delivery extraction for in-transit network packets.
+Manages scheduling, bandwidth serialization, byte quotas, packet loss evaluation,
+stochastic latency application, and chronological delivery extraction.
 """
 
 import heapq
 from typing import List, Optional, Tuple
+from network.bandwidth_model import BandwidthConfig
 from network.delay_model import DelayModel
 from network.models import DeliveryStatus, NetworkPacket
 from network.network_config import NetworkConfig
 from network.packet_loss import PacketLossModel
 from network.packet_ordering import PacketAnalysisResult, PacketOrderingTracker
+from network.transmission_scheduler import TransmissionScheduler
 
 
 class PacketQueue:
-    """Simulates an asynchronous network pipeline with loss, latency, and out-of-order delivery."""
+    """Simulates an asynchronous network pipeline with bandwidth, loss, latency, and out-of-order delivery."""
 
     def __init__(
         self,
         config: Optional[NetworkConfig] = None,
         delay_model: Optional[DelayModel] = None,
         loss_model: Optional[PacketLossModel] = None,
+        scheduler: Optional[TransmissionScheduler] = None,
         ordering_tracker: Optional[PacketOrderingTracker] = None,
     ) -> None:
         self.config = config or NetworkConfig()
@@ -28,7 +31,8 @@ class PacketQueue:
 
         self.delay_model = delay_model or DelayModel(self.config.delay)
         self.loss_model = loss_model or PacketLossModel(self.config.packet_loss)
-        self.ordering_tracker = ordering_tracker or PacketOrderingTracker()
+        self.scheduler = scheduler or TransmissionScheduler(self.config.bandwidth)
+        self.ordering_tracker = ordering_tracker or PacketOrderingTracker(self.config.ordering)
 
         # Priority queue entries stored as: (scheduled_delivery_time, tie_breaker_seq, packet)
         self._in_transit_heap: List[Tuple[float, int, NetworkPacket]] = []
@@ -44,11 +48,16 @@ class PacketQueue:
     ) -> Optional[NetworkPacket]:
         """Submit a packet into the network pipeline.
         
-        Applies packet loss evaluation and transmission delay calculation.
-        Returns the scheduled packet if accepted into transit, or None if dropped.
+        Applies:
+            1. Packet loss evaluation
+            2. Bandwidth serialization and byte quota scheduling
+            3. Propagation delay calculation
+            4. In-transit priority queue placement
+            
+        Returns:
+            The scheduled packet if accepted into transit, or None if dropped/blocked.
         """
-        tx_time = current_time if current_time is not None else packet.generation_timestamp
-        packet.transmission_timestamp = tx_time
+        t_now = current_time if current_time is not None else packet.generation_timestamp
 
         # 1. Evaluate Packet Loss
         if self.loss_model.should_drop():
@@ -56,14 +65,23 @@ class PacketQueue:
             self._dropped_packets.append(packet)
             return None
 
-        # 2. Compute Stochastic Transmission & Propagation Delay
-        delay_s = self.delay_model.calculate_delay_seconds()
-        delivery_time = round(tx_time + delay_s, 4)
+        # 2. Bandwidth & Quota Transmission Scheduling
+        schedule_result = self.scheduler.schedule(packet, t_now)
+        if schedule_result is None:
+            # Packet blocked by quota (and rejected)
+            self._dropped_packets.append(packet)
+            return None
+
+        tx_start, tx_complete = schedule_result
+
+        # 3. Compute Stochastic Propagation Latency
+        propagation_delay_s = self.delay_model.calculate_delay_seconds()
+        delivery_time = round(tx_complete + propagation_delay_s, 4)
         
         packet.scheduled_delivery_timestamp = delivery_time
         packet.status = DeliveryStatus.IN_TRANSIT
 
-        # 3. Push to Min-Heap ordered by scheduled delivery time
+        # 4. Push to Min-Heap ordered by scheduled delivery time
         self._counter += 1
         heapq.heappush(self._in_transit_heap, (delivery_time, self._counter, packet))
         return packet
@@ -117,8 +135,12 @@ class PacketQueue:
         """Return stream analysis results for all delivered packets."""
         return list(self._analysis_history)
 
+    def get_scheduler_metrics(self) -> dict:
+        """Return transmission scheduler performance metrics."""
+        return self.scheduler.get_metrics()
+
     def reset(self, new_seed: Optional[int] = None) -> None:
-        """Reset the queue, loss model, delay model, and ordering tracker."""
+        """Reset the queue, loss model, delay model, scheduler, and ordering tracker."""
         self._in_transit_heap.clear()
         self._dropped_packets.clear()
         self._delivered_packets.clear()
@@ -126,4 +148,5 @@ class PacketQueue:
         self._counter = 0
         self.delay_model.reset(new_seed)
         self.loss_model.reset(new_seed)
+        self.scheduler.reset()
         self.ordering_tracker.reset()

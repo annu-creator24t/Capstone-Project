@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from typing import Optional
+from network.bandwidth_model import BandwidthConfig, QuotaAction
 from network.delay_model import DelayConfig, DelayMode
 from network.packet_loss import PacketLossConfig
 from network.packet_ordering import OrderingConfig, OrderingPolicy
@@ -14,9 +15,11 @@ class NetworkConfig:
     delay: DelayConfig = field(default_factory=lambda: DelayConfig(mode=DelayMode.FIXED, fixed_delay_ms=100.0))
     packet_loss: PacketLossConfig = field(default_factory=lambda: PacketLossConfig(enabled=True, probability=0.10))
     ordering: OrderingConfig = field(default_factory=lambda: OrderingConfig(policy=OrderingPolicy.TIMESTAMP_AWARE))
+    bandwidth: BandwidthConfig = field(default_factory=lambda: BandwidthConfig(enabled=False, bandwidth_bps=64000.0))
 
     def validate(self) -> None:
         """Validate all child configurations."""
         self.delay.validate()
         self.packet_loss.validate()
         self.ordering.validate()
+        self.bandwidth.validate()
