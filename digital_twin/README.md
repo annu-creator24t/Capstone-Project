@@ -15,7 +15,7 @@ This package provides a cloud-side **Physics-Informed Digital Twin (DT)** that e
     └── Determines Sync Status: SYNCHRONIZED | PARTIALLY_SYNCHRONIZED | STALE | DISCONNECTED
              |
              v
-[ Physics-Informed State Estimator ]
+[ Physics-Informed Nominal Model / State Estimator ]
     ├── Predicts Nominal State: x^(k+1) = f(x^(k), u(k), dt)
     └── Updates with Valid Non-Stale Telemetry
              |
@@ -35,7 +35,28 @@ This package provides a cloud-side **Physics-Informed Digital Twin (DT)** that e
 
 ---
 
-## 📊 2. Core Data Models (`digital_twin/models.py`)
+## 🔬 2. Physics-Informed Nominal Model Equations (`digital_twin/nominal_model.py`)
+
+The nominal model implements a deterministic discrete-time observer:
+
+$$\hat{x}_{k+1} = f(\hat{x}_k, u_k, \Delta t)$$
+
+$$\hat{y}_k = g(\hat{x}_k, u_k)$$
+
+### Dynamic Thermal Balance
+$$\dot{Q}_{\text{in}} = (k_{\text{base}} + k_{\text{load}} \cdot \text{engine\_load}) \cdot \left(\frac{\text{rpm}}{1000}\right)$$
+
+$$\dot{Q}_{\text{out}} = (k_{\text{nat}} + k_{\text{speed}} \cdot v + k_{\text{fan}} \cdot \text{fan\_status}) \cdot (T - T_{\text{ambient}})$$
+
+$$\Delta T = \left(\frac{\dot{Q}_{\text{in}} - \dot{Q}_{\text{out}}}{C_{\text{thermal}}}\right) \cdot \Delta t$$
+
+### Thermostat Control Logic
+- **Fan Engagement:** Turns ON ($1$) when $T \ge 95^\circ\text{C}$.
+- **Fan Disengagement:** Turns OFF ($0$) when $T \le 90^\circ\text{C}$ (hysteresis).
+
+---
+
+## 📊 3. Core Data Models (`digital_twin/models.py`)
 
 - **`DigitalTwinState`:** Represents the estimated state ($\hat{x}$) of the vehicle, including estimated speed, RPM, load, thermal temperature, fan status, and synchronization health.
 - **`ExpectedMeasurement`:** Represents the nominal output ($\hat{y}$) synthesized by the physical observer.
@@ -45,10 +66,10 @@ This package provides a cloud-side **Physics-Informed Digital Twin (DT)** that e
 
 ---
 
-## ⚙️ 3. Configuration Reference (`digital_twin/twin_config.py`)
+## ⚙️ 4. Configuration Reference (`digital_twin/twin_config.py`)
 
 ```python
-from digital_twin import DigitalTwinConfig, ResidualThresholds, SynchronizationThresholds
+from digital_twin import DigitalTwinConfig, ResidualThresholds, SynchronizationThresholds, NominalVehicleModel
 
 config = DigitalTwinConfig(
     vehicle_id="EV_001",
@@ -64,4 +85,6 @@ config = DigitalTwinConfig(
         disconnect_aoi_threshold_s=10.0,
     ),
 )
+
+nominal_model = NominalVehicleModel(config=config)
 ```

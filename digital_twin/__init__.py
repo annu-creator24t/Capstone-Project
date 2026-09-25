@@ -16,6 +16,7 @@ from digital_twin.twin_config import (
     ResidualThresholds,
     SynchronizationThresholds,
 )
+from digital_twin.nominal_model import NominalVehicleModel
 
 __all__ = [
     "AnomalyStatus",
@@ -26,4 +27,5 @@ __all__ = [
     "DigitalTwinConfig",
     "ResidualThresholds",
     "SynchronizationThresholds",
+    "NominalVehicleModel",
 ]
