@@ -40,6 +40,12 @@ This package provides a high-fidelity, configurable communication layer that sim
     └── Duplicate Detection
              |
              v
+[ Age of Information (AoI) Freshness Engine ]
+    ├── Instantaneous AoI: AoI(t) = t - u(t)
+    ├── Peak AoI Tracking
+    └── Time-Integrated Average AoI: (1/T) ∫ AoI(t) dt
+             |
+             v
 [ Delivered to Cloud Digital Twin ]
 ```
 
@@ -60,29 +66,23 @@ All timing in the network emulation layer uses a deterministic **Logical Simulat
 
 ---
 
-## 🔀 3. Out-of-Order & Stale Telemetry Definitions
+## ⏱️ 3. Age of Information (AoI) Freshness Metrics
 
-When packets experience variable latency (jitter) or queue serialization differences:
+$$\text{AoI}_{v, s}(t) = t - u_{v, s}(t)$$
 
-- **In-Sequence Packet:** $t_{\text{gen}} \ge t_{\text{last\_gen}}$ and $\text{seq} > \text{seq}_{\text{last}}$.
-- **Out-of-Order Packet:** Arrives with a sequence number lower than the most recently received packet ($\text{seq} < \text{seq}_{\text{last}}$).
-- **Stale Packet:** Arrives with an older generation timestamp than the latest accepted update for that specific sensor stream ($t_{\text{gen}} < t_{\text{last\_gen}}$).
-- **Duplicate Packet:** Arrives with an already-observed packet ID or sequence number.
+where $u_{v, s}(t) = \max \{ t_{\text{generation}} : \text{valid non-stale update received by time } t \}$.
 
----
-
-## 📊 4. Bandwidth Serialization & Byte Quota Formulation
-
-$$T_{\text{serialization}} = \frac{\text{packet\_size\_bytes} \times 8}{\text{bandwidth\_bps}}$$
-
-- **Bandwidth Quota:** Optional configurable byte ceiling per sliding or fixed time window (e.g., 500 KB per hour, or 1000 bytes/sec).
-- **Quota Actions:**
-  - `DELAY_TO_NEXT_WINDOW`: Pauses transmission until the next quota window opens.
-  - `REJECT_PACKET`: Rejects and drops packets exceeding the current quota window.
+### Freshness Properties
+- **Linear Growth:** When no newer packet arrives, $\text{AoI}(t)$ grows with unit slope ($\frac{d\text{AoI}}{dt} = 1$).
+- **Freshness Reset:** Upon arrival of a strictly newer packet ($t_{\text{gen}} > u(t)$), AoI drops to the instantaneous delivery latency ($t_{\text{rx}} - t_{\text{gen}}$).
+- **Stale Protection:** Stale and duplicate packets ($t_{\text{gen}} \le u(t)$) do NOT reset the AoI downward.
+- **Peak AoI:** The highest age reached right before an update resets the freshness sawtooth curve.
+- **Continuous Time-Integrated Average AoI:**
+  $$\overline{\text{AoI}} = \frac{1}{T} \int_0^T \text{AoI}(t) \, dt$$
 
 ---
 
-## ⚙️ 5. Configuration Reference
+## ⚙️ 4. Configuration Reference
 
 ```python
 from network import (

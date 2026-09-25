@@ -24,6 +24,10 @@ from network.transmission_scheduler import (
     SchedulerMetrics,
     TransmissionScheduler,
 )
+from network.aoi_tracker import (
+    AoITracker,
+    SensorAoIState,
+)
 from network.packet_queue import PacketQueue
 from network.network_config import NetworkConfig
 
@@ -46,6 +50,8 @@ __all__ = [
     "calculate_serialization_time",
     "SchedulerMetrics",
     "TransmissionScheduler",
+    "AoITracker",
+    "SensorAoIState",
     "PacketQueue",
     "NetworkConfig",
 ]

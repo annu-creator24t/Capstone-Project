@@ -1,11 +1,12 @@
 """Packet Queue and Delivery Pipeline for Connected Vehicle Telemetry.
 
 Manages scheduling, bandwidth serialization, byte quotas, packet loss evaluation,
-stochastic latency application, and chronological delivery extraction.
+stochastic latency application, chronological delivery extraction, and AoI freshness tracking.
 """
 
 import heapq
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+from network.aoi_tracker import AoITracker
 from network.bandwidth_model import BandwidthConfig
 from network.delay_model import DelayModel
 from network.models import DeliveryStatus, NetworkPacket
@@ -16,7 +17,7 @@ from network.transmission_scheduler import TransmissionScheduler
 
 
 class PacketQueue:
-    """Simulates an asynchronous network pipeline with bandwidth, loss, latency, and out-of-order delivery."""
+    """Simulates an asynchronous network pipeline with bandwidth, loss, latency, and AoI tracking."""
 
     def __init__(
         self,
@@ -25,6 +26,7 @@ class PacketQueue:
         loss_model: Optional[PacketLossModel] = None,
         scheduler: Optional[TransmissionScheduler] = None,
         ordering_tracker: Optional[PacketOrderingTracker] = None,
+        aoi_tracker: Optional[AoITracker] = None,
     ) -> None:
         self.config = config or NetworkConfig()
         self.config.validate()
@@ -33,6 +35,7 @@ class PacketQueue:
         self.loss_model = loss_model or PacketLossModel(self.config.packet_loss)
         self.scheduler = scheduler or TransmissionScheduler(self.config.bandwidth)
         self.ordering_tracker = ordering_tracker or PacketOrderingTracker(self.config.ordering)
+        self.aoi_tracker = aoi_tracker or AoITracker()
 
         # Priority queue entries stored as: (scheduled_delivery_time, tie_breaker_seq, packet)
         self._in_transit_heap: List[Tuple[float, int, NetworkPacket]] = []
@@ -90,7 +93,7 @@ class PacketQueue:
         """Extract all packets whose delivery time has arrived by current_time.
         
         Packets are delivered strictly in the order of their scheduled delivery timestamps.
-        If multiple packets have different latencies, out-of-order delivery naturally emerges.
+        Updates ordering tracker and AoI freshness engine.
         """
         delivered: List[NetworkPacket] = []
 
@@ -99,9 +102,13 @@ class PacketQueue:
             packet.reception_timestamp = delivery_time
             packet.status = DeliveryStatus.DELIVERED
             
-            # Analyze ordering and stream state
+            # 1. Analyze ordering and stream state
             analysis = self.ordering_tracker.process_packet(packet)
             self._analysis_history.append(analysis)
+            
+            # 2. Update Age-of-Information (AoI) Freshness
+            self.aoi_tracker.update(packet, current_time=delivery_time)
+
             self._delivered_packets.append(packet)
             delivered.append(packet)
 
@@ -135,12 +142,16 @@ class PacketQueue:
         """Return stream analysis results for all delivered packets."""
         return list(self._analysis_history)
 
-    def get_scheduler_metrics(self) -> dict:
+    def get_scheduler_metrics(self) -> Dict[str, Any]:
         """Return transmission scheduler performance metrics."""
         return self.scheduler.get_metrics()
 
+    def get_aoi_statistics(self, vehicle_id: str, sensor_name: str, current_time: Optional[float] = None) -> Optional[Dict[str, Any]]:
+        """Retrieve Age of Information metrics for a specific stream."""
+        return self.aoi_tracker.get_statistics(vehicle_id, sensor_name, current_time)
+
     def reset(self, new_seed: Optional[int] = None) -> None:
-        """Reset the queue, loss model, delay model, scheduler, and ordering tracker."""
+        """Reset the queue, loss model, delay model, scheduler, ordering tracker, and AoI engine."""
         self._in_transit_heap.clear()
         self._dropped_packets.clear()
         self._delivered_packets.clear()
@@ -150,3 +161,4 @@ class PacketQueue:
         self.loss_model.reset(new_seed)
         self.scheduler.reset()
         self.ordering_tracker.reset()
+        self.aoi_tracker.reset()
