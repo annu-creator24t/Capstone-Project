@@ -71,7 +71,7 @@ class SensorResidual:
     sensor_name: str
     timestamp: float
     observed_value: Optional[float]
-    expected_value: float
+    expected_value: Optional[float] = None
     residual: Optional[float] = None
     absolute_residual: Optional[float] = None
     relative_residual: Optional[float] = None
@@ -83,18 +83,20 @@ class SensorResidual:
     details: str = ""
 
     def __post_init__(self) -> None:
-        """Compute residual differences automatically if observed value is available."""
-        if self.observed_value is not None:
+        """Compute residual differences automatically if not explicitly provided and data is valid."""
+        if (
+            self.residual is None 
+            and self.observed_value is not None 
+            and self.expected_value is not None 
+            and self.anomaly_status not in (AnomalyStatus.INSUFFICIENT_DATA, AnomalyStatus.INVALID_DATA)
+        ):
             raw_r = self.observed_value - self.expected_value
             self.residual = round(raw_r, 4)
             self.absolute_residual = round(abs(raw_r), 4)
 
             # Safe relative residual computation avoiding division by zero
-            denom = abs(self.expected_value)
-            if denom > 1e-6:
-                self.relative_residual = round(self.absolute_residual / denom, 4)
-            else:
-                self.relative_residual = None
+            denom = max(abs(self.expected_value), 1e-4)
+            self.relative_residual = round(self.absolute_residual / denom, 4)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert residual to dictionary format."""

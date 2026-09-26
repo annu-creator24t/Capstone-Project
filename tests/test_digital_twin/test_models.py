@@ -97,7 +97,8 @@ class TestDigitalTwinModels(unittest.TestCase):
             expected_value=0.0,
         )
         self.assertAlmostEqual(res.residual, 5.0, places=4)
-        self.assertIsNone(res.relative_residual)
+        self.assertIsNotNone(res.relative_residual)
+        self.assertAlmostEqual(res.relative_residual, 50000.0, places=1)
 
     def test_twin_config_validation(self) -> None:
         """Verify DigitalTwinConfig bounds and threshold checks."""

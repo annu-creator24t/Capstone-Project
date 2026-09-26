@@ -21,6 +21,10 @@ from digital_twin.state_estimator import (
     DigitalTwinStateEstimator,
     EstimatorMetrics,
 )
+from digital_twin.residual_generator import (
+    ResidualGenerator,
+    ResidualValidityStatus,
+)
 
 __all__ = [
     "AnomalyStatus",
@@ -34,4 +38,6 @@ __all__ = [
     "NominalVehicleModel",
     "DigitalTwinStateEstimator",
     "EstimatorMetrics",
+    "ResidualGenerator",
+    "ResidualValidityStatus",
 ]
