@@ -272,3 +272,61 @@ summary = result.to_summary_dict()
 - **Baseline Thresholds:** Anomaly classifications rely on fixed engineering thresholds rather than adaptive, probabilistic, or machine-learning models.
 - **Single Vehicle Scope:** Evaluates one connected vehicle at a time per scenario instance.
 - **Physical Dynamics:** Nominal thermal physics uses 1D lumped-parameter differential equations.
+
+---
+
+## 🚀 8. Experimental Campaign & Research Data Generation (Stage 5)
+
+Stage 5 provides an experiment orchestration and research data generation framework built directly on top of the Stage 4D diagnostic evaluation runner.
+
+### Purpose & Research Principle
+
+The objective is to systematically sweep communication parameters (loss, delay, jitter), vehicle fault modes (sensor bias, component failures), and replicate seeds to produce structured research datasets (CSV/JSON/Manifest) for statistical analysis, conference papers, and benchmark comparisons.
+
+The framework preserves the core research distinction:
+- **Case 1 (Communication Impairment):** Healthy vehicle with stale or delayed telemetry produces high AoI and $\text{NOT\_EVALUATED}$ freshness classification, avoiding false vehicle anomaly alerts.
+- **Case 2 (Genuine Vehicle Fault):** Physical fault on fresh telemetry generates persistent residuals confirmed as an anomaly with measured detection delay ($\Delta t_{\text{detect}}$).
+
+### Standard Experiment Groups (A through H)
+
+- **Group A (`baseline`):** Reference baseline under nominal health and clean $10\text{ms}$ fixed delay.
+- **Group B (`packet_loss_sweep`):** Packet loss rates swept over $0\%, 10\%, 20\%, 35\%, 50\%$.
+- **Group C (`delay_sweep`):** Transmission latencies swept over $10, 50, 100, 300, 600\text{ms}$.
+- **Group D (`jitter_sweep`):** Latency jitter swept over $0, 25, 50, 100, 250\text{ms}$.
+- **Group E (`fault_severity_sweep`):** Thermal sensor biases swept over $+5^\circ\text{C}, +10^\circ\text{C}, +15^\circ\text{C}, +20^\circ\text{C}$.
+- **Group F (`fault_packet_loss`):** Fault condition ($+15^\circ\text{C}$ bias) evaluated under packet loss ($0\%$ to $50\%$).
+- **Group G (`fault_delay`):** Fault condition ($+15^\circ\text{C}$ bias) evaluated across network delays ($10\text{ms}$ to $600\text{ms}$).
+- **Group H (`combined_impairment`):** Multi-variable real-world impairment ($+15^\circ\text{C}$ bias, $25\%$ loss, $80\text{ms} \pm 25\text{ms}$ delay) across replicate seeds.
+
+### Campaign Execution via Python API
+
+```python
+from digital_twin.experiment_runner import ExperimentCampaign, ExperimentRunner
+
+runner = ExperimentRunner()
+
+# 1. Build a packet loss sweep campaign
+configs = ExperimentCampaign.create_packet_loss_sweep_group(
+    loss_rates=[0.0, 0.10, 0.20, 0.35, 0.50],
+    seeds=[42, 101, 202],
+    duration_s=20.0,
+)
+
+# 2. Run the campaign batch
+results = runner.run_campaign(configs)
+
+# 3. Export datasets
+runner.export_to_csv(results, "experiments/results/campaign_packet_loss_results.csv")
+runner.export_to_json(results, "experiments/results/campaign_packet_loss_results.json")
+runner.generate_manifest(configs, "experiments/experiment_manifest.json")
+```
+
+### Campaign Execution via CLI
+
+```bash
+# Run full master campaign
+python -m digital_twin.run_experiments --all
+
+# Run specific experiment group
+python -m digital_twin.run_experiments --group fault_packet_loss --seeds 42 101 202
+```
