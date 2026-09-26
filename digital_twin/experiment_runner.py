@@ -316,7 +316,7 @@ class ExperimentCampaign:
 
     @staticmethod
     def create_combined_impairment_group(
-        seeds: Sequence[int] = (101, 202, 303, 404, 505),
+        seeds: Sequence[int] = (101, 202, 303),
         duration_s: float = 20.0,
     ) -> List[ExperimentConfig]:
         """Group H — Combined Injected Fault + Packet Loss + Delay + Jitter."""
@@ -349,6 +349,7 @@ class ExperimentCampaign:
         cls,
         seeds: Sequence[int] = (42, 101, 202),
         duration_s: float = 20.0,
+        group_h_seeds: Optional[Sequence[int]] = (101, 202, 303),
     ) -> List[ExperimentConfig]:
         """Build the consolidated master experimental matrix covering all groups A through H."""
         full_list: List[ExperimentConfig] = []
@@ -359,7 +360,8 @@ class ExperimentCampaign:
         full_list.extend(cls.create_fault_severity_sweep_group(seeds=seeds, duration_s=duration_s))
         full_list.extend(cls.create_fault_packet_loss_group(seeds=seeds, duration_s=duration_s))
         full_list.extend(cls.create_fault_delay_group(seeds=seeds, duration_s=duration_s))
-        full_list.extend(cls.create_combined_impairment_group(seeds=seeds, duration_s=duration_s))
+        h_seeds = group_h_seeds if group_h_seeds is not None else seeds
+        full_list.extend(cls.create_combined_impairment_group(seeds=h_seeds, duration_s=duration_s))
         return full_list
 
 
