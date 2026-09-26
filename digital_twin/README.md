@@ -200,3 +200,75 @@ print(f"Anomaly Level: {temp_eval.anomaly_level.value}")      # 'warning' (1st s
 print(f"Is Confirmed: {temp_eval.is_confirmed}")            # False
 print(f"Reason: {temp_eval.reason}")
 ```
+
+---
+
+## 🔬 7. Integrated Diagnostic Evaluation Framework (Stage 4D)
+
+Stage 4D provides a deterministic, reproducible experimental evaluation framework that integrates the entire connected vehicle Digital Twin diagnostic pipeline:
+
+$$\text{Vehicle Simulator} \longrightarrow \text{Network Impairment \& AoI} \longrightarrow \text{State Estimator} \longrightarrow \text{Nominal Vehicle Model} \longrightarrow \text{Residual Generator} \longrightarrow \text{Freshness Evaluation} \longrightarrow \text{Baseline Anomaly Detector}$$
+
+### Purpose & Scope
+
+The purpose of Stage 4D is **NOT** to introduce machine learning models or novel anomaly detection algorithms. Instead, it provides an empirical testing harness to evaluate how transport-layer impairments (Age of Information, packet loss, transmission delay, jitter, duplicate packets, out-of-order delivery) and physical vehicle faults affect Digital Twin diagnostic accuracy and timeliness.
+
+### Predefined Scenarios (A through G)
+
+The [`DiagnosticEvaluationRunner`](file:///c:/Users/ANNU%20TIWARI/Desktop/Capstone%20project/digital_twin/evaluation.py#L159) provides factory constructors for standard experimental evaluation scenarios:
+
+| Scenario | Name | Condition | Key Metric / Verification |
+| :--- | :--- | :--- | :--- |
+| **A** | `Scenario_A_Clean` | Healthy vehicle, minimal network impairment (10ms fixed delay). | Telemetry accepted; residuals remain normal; 0 false alerts. |
+| **B** | `Scenario_B_Aging_Stale` | Healthy vehicle with communication blackout / staleness hold. | AoI increases; freshness transitions `FRESH` $\to$ `AGING` $\to$ `STALE`; stale frames marked `NOT_EVALUATED`; **0 false vehicle alerts**. |
+| **C** | `Scenario_C_Packet_Loss` | Controlled stochastic packet loss ($p = 0.35$). | Quantifies dropped packets, missing updates, and AoI degradation windows. |
+| **D** | `Scenario_D_Delay_Jitter` | Stochastic uniform network delay ($50\text{ms} - 600\text{ms}$). | Captures variable arrival jitter, dynamic AoI peaks, and state estimator alignment. |
+| **E** | `Scenario_E_Duplicates_OutOfOrder` | Retransmission duplicates ($30\%$) and jittered arrival order. | Verifies duplicate rejection, out-of-order handling, and state integrity in State Estimator. |
+| **F** | `Scenario_F_InjectedFault` | Deterministic vehicle fault ($+15^\circ\text{C}$ sensor bias, fan failure, etc.) on clean link. | Evaluates residual magnitude, time-to-confirmation, and detection delay ($\Delta t_{\text{detect}}$). |
+| **G** | `Scenario_G_FaultPlusImpairment` | Combined vehicle fault with packet loss ($25\%$) and Gaussian delay ($80\text{ms} \pm 25\text{ms}$). | Evaluates diagnostic resilience under lossy, delayed transport channels. |
+
+### Performance & Diagnostic Metrics
+
+Each evaluation run compiles a structured [`ScenarioResult`](file:///c:/Users/ANNU%20TIWARI/Desktop/Capstone%20project/digital_twin/evaluation.py#L100) containing:
+
+- **Transport & Network Metrics:** `total_generated_frames`, `total_packets_transmitted`, `total_packets_delivered`, `total_packets_dropped`, `packet_loss_rate_percent`.
+- **State Estimator Metrics:** `total_accepted_updates`, `total_rejected_updates`, `duplicate_updates`, `stale_updates`, `out_of_order_updates`.
+- **Freshness & Eligibility:** `freshness_counts` (`FRESH`, `AGING`, `STALE`, `INVALID`, `MISSING`), `diagnostic_eligible_count`, `not_eligible_count`.
+- **Anomaly Severity Counts:** `anomaly_level_counts` (`NORMAL`, `WARNING`, `ANOMALY`, `NOT_EVALUATED`), `candidate_anomaly_count`, `confirmed_anomaly_count`.
+- **Ground Truth & Timing Alignment:** `ground_truth_fault_frames`, `true_positive_alert_count`, `false_alert_count`, `detection_delay_s` ($\Delta t = t_{\text{confirmed}} - t_{\text{fault\_start}}$).
+- **Residual & AoI Statistics:** `mean_aoi_s`, `max_aoi_s`, `mean_residual_by_sensor`, `max_residual_by_sensor`.
+
+### Evaluation Framework Example
+
+```python
+from digital_twin.evaluation import DiagnosticEvaluationRunner
+from simulator.fault_injector import FaultType
+
+runner = DiagnosticEvaluationRunner()
+
+# Run Scenario F: Thermal sensor bias (+15°C)
+scenario_f = runner.create_scenario_f_injected_fault(
+    duration_s=20.0,
+    fault_type=FaultType.TEMP_SENSOR_BIAS,
+    fault_start_s=5.0,
+    fault_end_s=15.0,
+    bias_offset_c=15.0,
+    seed=42,
+)
+result = runner.run_scenario(scenario_f)
+
+print(f"Scenario: {result.scenario_name}")
+print(f"Delivered Packets: {result.total_packets_delivered}")
+print(f"Confirmed Anomalies: {result.confirmed_anomaly_count}")
+print(f"Detection Delay: {result.detection_delay_s}s")
+print(f"Max Thermal Residual: {result.max_residual_by_sensor['engine_temperature_c']}°C")
+
+# Export structured summary for research analysis
+summary = result.to_summary_dict()
+```
+
+### Limitations
+
+- **Baseline Thresholds:** Anomaly classifications rely on fixed engineering thresholds rather than adaptive, probabilistic, or machine-learning models.
+- **Single Vehicle Scope:** Evaluates one connected vehicle at a time per scenario instance.
+- **Physical Dynamics:** Nominal thermal physics uses 1D lumped-parameter differential equations.

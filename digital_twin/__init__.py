@@ -37,6 +37,13 @@ from digital_twin.telemetry_freshness import (
 from digital_twin.anomaly_detector import (
     BaselineAnomalyDetector,
 )
+from digital_twin.evaluation import (
+    DiagnosticEvaluationRunner,
+    EvaluationRecord,
+    EvaluationScenario,
+    ScenarioResult,
+    ScenarioType,
+)
 
 __all__ = [
     "AnomalyLevel",
@@ -60,4 +67,9 @@ __all__ = [
     "ResidualValidityStatus",
     "TelemetryFreshnessEvaluator",
     "BaselineAnomalyDetector",
+    "DiagnosticEvaluationRunner",
+    "EvaluationRecord",
+    "EvaluationScenario",
+    "ScenarioResult",
+    "ScenarioType",
 ]
