@@ -70,6 +70,22 @@ class TestDigitalTwinModels(unittest.TestCase):
         # Relative: 6.0 / 90.0 = 0.0667 (6.67%)
         self.assertAlmostEqual(res.relative_residual, 0.0667, places=4)
         self.assertEqual(res.anomaly_status, AnomalyStatus.NORMAL)
+        self.assertEqual(res.freshness_status.value, "fresh")
+
+    def test_sensor_residual_freshness_serialization(self) -> None:
+        """Verify SensorResidual serialization includes formatted string freshness status."""
+        res = SensorResidual(
+            vehicle_id="EV_001",
+            sensor_name="engine_temperature_c",
+            timestamp=12.0,
+            observed_value=96.0,
+            expected_value=90.0,
+            data_age_s=0.2,
+        )
+        data = res.to_dict()
+        self.assertEqual(data["anomaly_status"], "normal")
+        self.assertEqual(data["freshness_status"], "fresh")
+        self.assertTrue(data["diagnostic_eligible"])
 
     def test_sensor_residual_missing_observed_value(self) -> None:
         """Verify handling of missing/dropped telemetry without calculation crashes."""

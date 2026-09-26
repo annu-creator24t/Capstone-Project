@@ -10,8 +10,11 @@ from typing import Any, Dict, Optional, Set
 from digital_twin.models import (
     AnomalyStatus,
     ExpectedMeasurement,
+    FreshnessStatus,
     SensorResidual,
 )
+from digital_twin.telemetry_freshness import TelemetryFreshnessEvaluator
+from digital_twin.twin_config import DigitalTwinConfig
 
 
 class ResidualValidityStatus(str, Enum):
@@ -41,15 +44,23 @@ class ResidualGenerator:
         "cooling_fan_status",
     }
 
-    def __init__(self, epsilon: float = 1e-4) -> None:
+    def __init__(
+        self,
+        epsilon: float = 1e-4,
+        freshness_evaluator: Optional[TelemetryFreshnessEvaluator] = None,
+        config: Optional[DigitalTwinConfig] = None,
+    ) -> None:
         """Initialize the residual generator.
         
         Args:
             epsilon: Small positive constant preventing division-by-zero in relative residuals.
+            freshness_evaluator: Optional custom TelemetryFreshnessEvaluator instance.
+            config: Optional master DigitalTwinConfig.
         """
         if epsilon <= 0:
             raise ValueError(f"epsilon must be strictly positive (>0), got {epsilon}")
         self.epsilon = epsilon
+        self.freshness_evaluator = freshness_evaluator or TelemetryFreshnessEvaluator(config=config)
 
     def _is_valid_number(self, val: Any) -> bool:
         """Verify if a value is a finite, real numerical float/int."""
@@ -100,7 +111,7 @@ class ResidualGenerator:
         # 1. Missing Observed Value Handling
         if observed_value is None:
             exp_val = float(expected_value) if self._is_valid_number(expected_value) else None
-            return SensorResidual(
+            raw_res = SensorResidual(
                 vehicle_id=vehicle_id,
                 sensor_name=sensor_name,
                 timestamp=timestamp,
@@ -115,11 +126,12 @@ class ResidualGenerator:
                 anomaly_status=AnomalyStatus.INSUFFICIENT_DATA,
                 details=ResidualValidityStatus.MISSING_OBSERVED.value,
             )
+            return self.freshness_evaluator.evaluate_residual(raw_res, aoi_seconds=data_age_s)
 
         # 2. Missing Expected Value Handling
         if expected_value is None or not self._is_valid_number(expected_value):
             obs_val = float(observed_value) if self._is_valid_number(observed_value) else None
-            return SensorResidual(
+            raw_res = SensorResidual(
                 vehicle_id=vehicle_id,
                 sensor_name=sensor_name,
                 timestamp=timestamp,
@@ -134,10 +146,11 @@ class ResidualGenerator:
                 anomaly_status=AnomalyStatus.INSUFFICIENT_DATA,
                 details=ResidualValidityStatus.MISSING_EXPECTED.value,
             )
+            return self.freshness_evaluator.evaluate_residual(raw_res, aoi_seconds=data_age_s)
 
         # 3. Invalid / Non-Numeric Value Handling (e.g. NaN, Inf, non-numeric strings)
         if not self._is_valid_number(observed_value):
-            return SensorResidual(
+            raw_res = SensorResidual(
                 vehicle_id=vehicle_id,
                 sensor_name=sensor_name,
                 timestamp=timestamp,
@@ -152,6 +165,7 @@ class ResidualGenerator:
                 anomaly_status=AnomalyStatus.INVALID_DATA,
                 details=ResidualValidityStatus.INVALID_VALUE.value,
             )
+            return self.freshness_evaluator.evaluate_residual(raw_res, aoi_seconds=data_age_s)
 
         obs_float = float(observed_value)
         exp_float = float(expected_value)
@@ -160,7 +174,7 @@ class ResidualGenerator:
         if is_stale:
             raw_r = self.calculate_raw_residual(obs_float, exp_float)
             rel_r = self.calculate_relative_residual(obs_float, exp_float, sensor_name)
-            return SensorResidual(
+            raw_res = SensorResidual(
                 vehicle_id=vehicle_id,
                 sensor_name=sensor_name,
                 timestamp=timestamp,
@@ -175,6 +189,7 @@ class ResidualGenerator:
                 anomaly_status=AnomalyStatus.STALE_DATA,
                 details=ResidualValidityStatus.STALE_DATA.value,
             )
+            return self.freshness_evaluator.evaluate_residual(raw_res, aoi_seconds=data_age_s)
 
         # 5. Categorical Signal Handling (e.g. Cooling Fan Status)
         if sensor_name in self.CATEGORICAL_SENSORS:
@@ -184,7 +199,7 @@ class ResidualGenerator:
                 if abs(raw_r) > 1e-4
                 else ResidualValidityStatus.CATEGORICAL_STATUS.value
             )
-            return SensorResidual(
+            raw_res = SensorResidual(
                 vehicle_id=vehicle_id,
                 sensor_name=sensor_name,
                 timestamp=timestamp,
@@ -199,12 +214,13 @@ class ResidualGenerator:
                 anomaly_status=AnomalyStatus.NORMAL,
                 details=status_detail,
             )
+            return self.freshness_evaluator.evaluate_residual(raw_res, aoi_seconds=data_age_s)
 
         # 6. Standard Continuous Numerical Residual Calculation
         raw_r = self.calculate_raw_residual(obs_float, exp_float)
         rel_r = self.calculate_relative_residual(obs_float, exp_float, sensor_name)
 
-        return SensorResidual(
+        raw_res = SensorResidual(
             vehicle_id=vehicle_id,
             sensor_name=sensor_name,
             timestamp=timestamp,
@@ -219,6 +235,7 @@ class ResidualGenerator:
             anomaly_status=AnomalyStatus.NORMAL,
             details=ResidualValidityStatus.VALID.value,
         )
+        return self.freshness_evaluator.evaluate_residual(raw_res, aoi_seconds=data_age_s)
 
     def compute_residuals_for_frame(
         self,

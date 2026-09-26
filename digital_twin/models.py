@@ -28,6 +28,15 @@ class AnomalyStatus(str, Enum):
     INVALID_DATA = "invalid_data"
 
 
+class FreshnessStatus(str, Enum):
+    """Telemetry data freshness and temporal reliability qualification."""
+    FRESH = "fresh"
+    AGING = "aging"
+    STALE = "stale"
+    INVALID = "invalid"
+    MISSING = "missing"
+
+
 @dataclass
 class DigitalTwinState:
     """Estimated physical and operating state maintained by the Cloud Digital Twin."""
@@ -81,6 +90,9 @@ class SensorResidual:
     anomaly_status: AnomalyStatus = AnomalyStatus.NORMAL
     threshold: Optional[float] = None
     details: str = ""
+    freshness_status: FreshnessStatus = FreshnessStatus.FRESH
+    diagnostic_eligible: bool = True
+    freshness_reason: str = ""
 
     def __post_init__(self) -> None:
         """Compute residual differences automatically if not explicitly provided and data is valid."""
@@ -102,4 +114,5 @@ class SensorResidual:
         """Convert residual to dictionary format."""
         data = asdict(self)
         data["anomaly_status"] = self.anomaly_status.value
+        data["freshness_status"] = self.freshness_status.value
         return data

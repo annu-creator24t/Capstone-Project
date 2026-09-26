@@ -8,11 +8,13 @@ from digital_twin.models import (
     AnomalyStatus,
     DigitalTwinState,
     ExpectedMeasurement,
+    FreshnessStatus,
     SensorResidual,
     SynchronizationStatus,
 )
 from digital_twin.twin_config import (
     DigitalTwinConfig,
+    FreshnessThresholds,
     ResidualThresholds,
     SynchronizationThresholds,
 )
@@ -25,14 +27,19 @@ from digital_twin.residual_generator import (
     ResidualGenerator,
     ResidualValidityStatus,
 )
+from digital_twin.telemetry_freshness import (
+    TelemetryFreshnessEvaluator,
+)
 
 __all__ = [
     "AnomalyStatus",
     "DigitalTwinState",
     "ExpectedMeasurement",
+    "FreshnessStatus",
     "SensorResidual",
     "SynchronizationStatus",
     "DigitalTwinConfig",
+    "FreshnessThresholds",
     "ResidualThresholds",
     "SynchronizationThresholds",
     "NominalVehicleModel",
@@ -40,4 +47,5 @@ __all__ = [
     "EstimatorMetrics",
     "ResidualGenerator",
     "ResidualValidityStatus",
+    "TelemetryFreshnessEvaluator",
 ]

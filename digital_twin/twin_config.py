@@ -26,6 +26,23 @@ class SynchronizationThresholds:
 
 
 @dataclass
+class FreshnessThresholds:
+    """Threshold limits for evaluating telemetry freshness and diagnostic eligibility."""
+    fresh_aoi_threshold_s: float = 1.0       # 0 <= AoI <= 1.0s -> FRESH
+    stale_aoi_threshold_s: float = 3.0       # 1.0s < AoI <= 3.0s -> AGING, AoI > 3.0s -> STALE
+
+    def validate(self) -> None:
+        """Validate freshness threshold ordering and positive bounds."""
+        if self.fresh_aoi_threshold_s <= 0:
+            raise ValueError(f"fresh_aoi_threshold_s must be positive (>0), got {self.fresh_aoi_threshold_s}")
+        if self.stale_aoi_threshold_s <= self.fresh_aoi_threshold_s:
+            raise ValueError(
+                f"stale_aoi_threshold_s ({self.stale_aoi_threshold_s}) must be strictly greater than "
+                f"fresh_aoi_threshold_s ({self.fresh_aoi_threshold_s})"
+            )
+
+
+@dataclass
 class DigitalTwinConfig:
     """Master configuration for the Cloud Digital Twin."""
     vehicle_id: str = "EV_001"
@@ -43,6 +60,7 @@ class DigitalTwinConfig:
     # Sub-configurations
     thresholds: ResidualThresholds = field(default_factory=ResidualThresholds)
     sync_thresholds: SynchronizationThresholds = field(default_factory=SynchronizationThresholds)
+    freshness_thresholds: FreshnessThresholds = field(default_factory=FreshnessThresholds)
 
     def validate(self) -> None:
         """Validate physical and threshold parameters."""
@@ -56,3 +74,4 @@ class DigitalTwinConfig:
             raise ValueError("stale_aoi_threshold_s must be positive")
         if self.sync_thresholds.disconnect_aoi_threshold_s <= self.sync_thresholds.stale_aoi_threshold_s:
             raise ValueError("disconnect_aoi_threshold_s must be greater than stale_aoi_threshold_s")
+        self.freshness_thresholds.validate()
