@@ -26,4 +26,6 @@ Thumbs.db
 *.log
 logs/
 results/
+experiments/results/
 data/
+*.pdf
