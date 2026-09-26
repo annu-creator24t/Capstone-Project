@@ -5,7 +5,9 @@ baseline threshold anomaly detectors, and network-aware synchronization tracking
 """
 
 from digital_twin.models import (
+    AnomalyLevel,
     AnomalyStatus,
+    AnomalyEvaluationResult,
     DigitalTwinState,
     ExpectedMeasurement,
     FreshnessStatus,
@@ -13,9 +15,11 @@ from digital_twin.models import (
     SynchronizationStatus,
 )
 from digital_twin.twin_config import (
+    AnomalyThresholds,
     DigitalTwinConfig,
     FreshnessThresholds,
     ResidualThresholds,
+    SignalThreshold,
     SynchronizationThresholds,
 )
 from digital_twin.nominal_model import NominalVehicleModel
@@ -30,17 +34,24 @@ from digital_twin.residual_generator import (
 from digital_twin.telemetry_freshness import (
     TelemetryFreshnessEvaluator,
 )
+from digital_twin.anomaly_detector import (
+    BaselineAnomalyDetector,
+)
 
 __all__ = [
+    "AnomalyLevel",
     "AnomalyStatus",
+    "AnomalyEvaluationResult",
     "DigitalTwinState",
     "ExpectedMeasurement",
     "FreshnessStatus",
     "SensorResidual",
     "SynchronizationStatus",
+    "AnomalyThresholds",
     "DigitalTwinConfig",
     "FreshnessThresholds",
     "ResidualThresholds",
+    "SignalThreshold",
     "SynchronizationThresholds",
     "NominalVehicleModel",
     "DigitalTwinStateEstimator",
@@ -48,4 +59,5 @@ __all__ = [
     "ResidualGenerator",
     "ResidualValidityStatus",
     "TelemetryFreshnessEvaluator",
+    "BaselineAnomalyDetector",
 ]

@@ -37,8 +37,11 @@ This package provides a cloud-side **Physics-Informed Digital Twin (DT)** that e
     └── Evaluates Diagnostic Eligibility (is_diagnostic_eligible)
              │
              ▼
-[ Future Anomaly Detector & Diagnostic Reasoner ]
-    └── Evaluates Residual Magnitudes on Trustworthy, Fresh Data
+[ Baseline Anomaly Detector (`digital_twin/anomaly_detector.py`) ]
+    ├── Signal-Specific Two-Level Thresholding (Warning vs Anomaly)
+    ├── Relative Discrepancy & Categorical Actuator Mismatch Evaluation
+    ├── Deterministic Persistence Tracking (consecutive sample confirmation)
+    └── Produces Structured AnomalyEvaluationResult (NORMAL, WARNING, ANOMALY, NOT_EVALUATED)
 ```
 
 ---
@@ -54,24 +57,6 @@ In connected vehicle cloud diagnostics, a large residual discrepancy $r = y - \h
 >
 > **Stage 4B does not determine whether a vehicle component is faulty.** It determines whether telemetry and residual information are sufficiently valid and fresh for later diagnostic evaluation.
 
-### Conceptual Flow
-
-```text
-Telemetry
-    ↓
-Acceptance
-    ↓
-Residual Generation
-    ↓
-Data Age / AoI
-    ↓
-Freshness Evaluation
-    ↓
-Diagnostic Eligibility
-    ↓
-Future Anomaly Detector
-```
-
 ### Freshness States (`FreshnessStatus`)
 
 1. **`FRESH`:** $0 \le \text{AoI} \le \text{fresh\_aoi\_threshold\_s}$ ($1.0\text{s}$). Telemetry is recent enough to be fully trustworthy for baseline anomaly detection.
@@ -80,31 +65,67 @@ Future Anomaly Detector
 4. **`INVALID`:** Telemetry contains $\text{NaN}$, $\pm\infty$, non-numeric types, or causality violations ($\text{AoI} < 0$).
 5. **`MISSING`:** Observation or expected measurement is missing/dropped.
 
-### Freshness Thresholds (`FreshnessThresholds`)
+---
 
-Configured in [`DigitalTwinConfig`](file:///c:/Users/ANNU%20TIWARI/Desktop/Capstone%20project/digital_twin/twin_config.py):
-* `fresh_aoi_threshold_s = 1.0s`: Maximum age for fully fresh evidence.
-* `stale_aoi_threshold_s = 3.0s`: Age beyond which telemetry is considered stale.
+## 🚨 3. Baseline Anomaly Detector (Stage 4C)
 
-### Diagnostic Eligibility Policy
+The [`BaselineAnomalyDetector`](file:///c:/Users/ANNU%20TIWARI/Desktop/Capstone%20project/digital_twin/anomaly_detector.py#L26) implements deterministic two-level thresholding, relative discrepancy evaluation, categorical mismatch detection, and persistence tracking for qualified residuals.
 
-A residual is marked `diagnostic_eligible = True` if and only if:
-1. It is accepted by the state estimator (`is_accepted = True`).
-2. It is not flagged stale (`is_stale = False`).
-3. It has valid numerical observed and expected values (not `INVALID_DATA` or `INSUFFICIENT_DATA`).
-4. It has a calculated residual (`residual is not None`).
-5. Its freshness status is `FRESH` (or `AGING` when explicitly allowed via `allow_aging=True`).
+> **Notice:**
+> **This is a deterministic baseline detector and is not a machine-learning diagnostic system.** The selected threshold values are engineering parameters designed for controlled benchmarking; experimental threshold calibration will be evaluated under varying network scenarios.
 
-### Retention of Stale Telemetry for Research
+### Two-Level Threshold Model
 
-Stale and aging residuals are **never discarded**. They are enriched with `residual`, `data_age_s` (AoI), `is_stale = True`, and `diagnostic_eligible = False`. This enables experimental evaluation of:
-* Detection latency under stochastic delays
-* False alarm rates induced by Age of Information
-* Diagnostic reliability across network bandwidth variations
+For continuous numerical sensors, the detector compares absolute residual magnitude $|r_k| = |y_k - \hat{y}_k|$ and optional relative residual $|r_{\text{rel}, k}|$:
+
+```text
+NORMAL
+    │
+    │  |r| > warning_threshold  OR  |r_rel| > relative_warning_threshold
+    ▼
+WARNING
+    │
+    │  |r| > anomaly_threshold  OR  |r_rel| > relative_anomaly_threshold (consecutive >= N)
+    ▼
+ANOMALY
+```
+
+### Signal-Specific Physical Thresholds (`AnomalyThresholds`)
+
+| Signal | Physical Unit | Warning Threshold | Anomaly Threshold | Relative Warning | Relative Anomaly |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `speed_kmh` | $\text{km/h}$ | $8.0\text{ km/h}$ | $12.0\text{ km/h}$ | $15\%$ ($0.15$) | $25\%$ ($0.25$) |
+| `rpm` | $\text{RPM}$ | $200.0\text{ RPM}$ | $350.0\text{ RPM}$ | $10\%$ ($0.10$) | $18\%$ ($0.18$) |
+| `engine_load` | $\text{ratio}$ | $0.12$ ($12\%$) | $0.20$ ($20\%$) | N/A | N/A |
+| `engine_temperature_c` | $^\circ\text{C}$ | $5.0^\circ\text{C}$ | $8.0^\circ\text{C}$ | $6\%$ ($0.06$) | $10\%$ ($0.10$) |
+| `cooling_fan_status` | $\text{discrete}$ | $|r| > 0$ | $|r| > 0.5$ (Mismatch) | N/A | N/A |
+
+### Categorical Fan Policy
+
+For `cooling_fan_status`:
+* Matching states ($\text{observed} == \text{expected}$) $\rightarrow$ `NORMAL`.
+* Mismatching states ($\text{observed} \ne \text{expected}$) $\rightarrow$ Candidate `ANOMALY`.
+* Relative percentage residual is explicitly bypassed because percentage deviation on binary actuator flags is physically meaningless.
+
+### Alert Persistence & Hysteresis
+
+To eliminate false alerts from single-sample noise or instantaneous telemetry jitter:
+* **Warning Persistence:** Default `warning_persistence_count = 1`.
+* **Anomaly Persistence:** Default `anomaly_persistence_count = 3` consecutive anomalous frames before confirming `ANOMALY`.
+* **Sample Interleaving:** A single nominal sample immediately resets the consecutive anomaly counter to zero.
+* **Stream Isolation:** State counters are strictly isolated by `(vehicle_id, sensor_name)`.
+* **Ineligible Telemetry:** Stale, invalid, or missing observations do **not** increment or corrupt persistence counters.
+
+### Evaluation Severity Levels (`AnomalyLevel`)
+
+* `NORMAL`: Residual is within nominal warning limits.
+* `WARNING`: Residual exceeds warning threshold or is an unconfirmed candidate anomaly.
+* `ANOMALY`: Residual exceeds anomaly threshold and satisfies configured consecutive persistence count.
+* `NOT_EVALUATED`: Telemetry is ineligible (e.g. stale, invalid, missing, rejected).
 
 ---
 
-## 📐 3. Residual Formulation & Policies (`digital_twin/residual_generator.py`)
+## 📐 4. Residual Formulation & Policies (`digital_twin/residual_generator.py`)
 
 ### Mathematical Equations
 1. **Raw Residual:**
@@ -114,26 +135,6 @@ Stale and aging residuals are **never discarded**. They are enriched with `resid
 3. **Defensive Relative Residual:**
    $$r_{\text{rel}, k} = \frac{y_k - \hat{y}_k}{\max(|\hat{y}_k|, \epsilon)}$$
    where $\epsilon = 10^{-4}$ prevents division-by-zero when $\hat{y}_k = 0$ (e.g., speed standstill).
-
-### Signal Specific Policies
-- **Continuous Numerical Signals (`speed_kmh`, `rpm`, `engine_load`, `engine_temperature_c`):** Full computation of raw and relative residuals.
-- **Categorical Actuator Signals (`cooling_fan_status`):** Evaluates discrete state matching (0 vs 1); relative residual is set to `None` because percentage error on binary discrete states is unphysical.
-- **Missing / Invalid Values:**
-  - `observed_value = None`: Handled gracefully as `INSUFFICIENT_DATA` (`residual = None`).
-  - `NaN / Inf / Non-numeric`: Classified as `INVALID_DATA` (`is_accepted = False`).
-  - `Stale Telemetry`: Evaluated but classified as `STALE_DATA` (`is_accepted = False`, `diagnostic_eligible = False`).
-
----
-
-## 📥 4. Telemetry Acceptance & Staleness Rejection Policies
-
-1. **Duplicate Rejection:** Packets with already-observed `packet_id` or `(sensor_name, sequence_number)` are rejected.
-2. **Stale / Out-of-Order Rejection:** If $t_{\text{generation}} < t_{\text{last\_accepted\_gen}}$, the packet is rejected from updating the state and recorded as stale/out-of-order.
-3. **Synchronization Health:**
-   - `INITIALIZING`: No valid telemetry ingested yet.
-   - `SYNCHRONIZED`: Time since last observation $\le 3.0\text{s}$.
-   - `STALE`: Time since last observation $> 3.0\text{s}$.
-   - `DISCONNECTED`: Time since last observation $> 10.0\text{s}$.
 
 ---
 
@@ -155,16 +156,16 @@ $$\Delta T = \left(\frac{\dot{Q}_{\text{in}} - \dot{Q}_{\text{out}}}{C_{\text{th
 
 ```python
 from digital_twin import (
+    BaselineAnomalyDetector,
     ExpectedMeasurement,
-    FreshnessStatus,
     ResidualGenerator,
     TelemetryFreshnessEvaluator,
 )
 
 evaluator = TelemetryFreshnessEvaluator()
 generator = ResidualGenerator(epsilon=1e-4, freshness_evaluator=evaluator)
+detector = BaselineAnomalyDetector()
 
-# Expected nominal state synthesized by Digital Twin
 exp = ExpectedMeasurement(
     vehicle_id="EV_001",
     timestamp=10.0,
@@ -179,21 +180,23 @@ obs = {
     "speed_kmh": 50.0,
     "rpm": 2200.0,
     "engine_load": 0.50,
-    "engine_temperature_c": 96.0,  # +8.0°C deviation
+    "engine_temperature_c": 98.0,  # +10.0°C deviation (> 8.0°C anomaly threshold)
     "cooling_fan_status": 0,
 }
 
-# Evaluates residuals and qualifies freshness with AoI tracking
 residuals = generator.compute_residuals_for_frame(
     vehicle_id="EV_001",
     observed_telemetry=obs,
     expected_measurement=exp,
     timestamp=10.0,
-    data_ages={"engine_temperature_c": 0.15},  # 150ms AoI -> FRESH
+    data_ages={"engine_temperature_c": 0.15},
 )
 
-temp_res = residuals["engine_temperature_c"]
-print(f"Raw Residual: {temp_res.residual}°C")
-print(f"Freshness Status: {temp_res.freshness_status.value}")  # 'fresh'
-print(f"Diagnostic Eligible: {temp_res.diagnostic_eligible}")  # True
+# Evaluate frame through baseline anomaly detector
+results = detector.detect_frame(residuals)
+
+temp_eval = results["engine_temperature_c"]
+print(f"Anomaly Level: {temp_eval.anomaly_level.value}")      # 'warning' (1st sample of 3)
+print(f"Is Confirmed: {temp_eval.is_confirmed}")            # False
+print(f"Reason: {temp_eval.reason}")
 ```
