@@ -69,7 +69,7 @@ class LiveSimulationEngine:
 
         self.reset()
 
-    def reset(self) -> None:
+    def reset(self, initial_temp_c: Optional[float] = None) -> None:
         """Reset vehicle, network emulator, and digital twin state estimators."""
         with self.lock:
             self.time_s = 0.0
@@ -91,8 +91,9 @@ class LiveSimulationEngine:
 
             # 2. Vehicle Model & Sensor Generator
             self.dt_config = DigitalTwinConfig()
+            init_temp = initial_temp_c if initial_temp_c is not None else self.dt_config.initial_temp_c
             self.vehicle = VehicleModel(
-                initial_temp_c=self.dt_config.initial_temp_c,
+                initial_temp_c=init_temp,
                 ambient_temp_c=self.dt_config.ambient_temp_c,
                 fan_on_temp_c=self.dt_config.fan_on_temp_c,
                 fan_off_temp_c=self.dt_config.fan_off_temp_c,
@@ -118,6 +119,8 @@ class LiveSimulationEngine:
 
             # 4. Cloud Digital Twin Models
             self.nominal_model = NominalVehicleModel(config=self.dt_config)
+            if initial_temp_c is not None:
+                self.nominal_model.reset(initial_temp_c=initial_temp_c)
             self.estimator = DigitalTwinStateEstimator(config=self.dt_config)
             self.freshness_eval = TelemetryFreshnessEvaluator(config=self.dt_config)
             self.residual_gen = ResidualGenerator(
@@ -133,7 +136,7 @@ class LiveSimulationEngine:
                 "speed_kmh": 45.0,
                 "rpm": 2200.0,
                 "engine_load": 0.50,
-                "engine_temperature_c": self.dt_config.initial_temp_c,
+                "engine_temperature_c": init_temp,
                 "cooling_fan_status": 0,
             }
             self.latest_record: Optional[Dict[str, Any]] = None
@@ -240,11 +243,20 @@ class LiveSimulationEngine:
             )
             expected = self.nominal_model.generate_expected_measurements()
 
-            # 6. Age of Information (AoI) Query
+            # 6. Age of Information (AoI) Query across all supported signals
             aoi_val = self.network.get_current_aoi(
                 self.vehicle_id, "engine_temperature_c", current_time=t
             )
-            aoi_map = {"engine_temperature_c": aoi_val}
+            aoi_map = {
+                sensor: self.network.get_current_aoi(self.vehicle_id, sensor, current_time=t)
+                for sensor in (
+                    "speed_kmh",
+                    "rpm",
+                    "engine_load",
+                    "engine_temperature_c",
+                    "cooling_fan_status",
+                )
+            }
 
             # 7. Residual Generation & Freshness Gating
             residuals = self.residual_gen.compute_residuals_for_frame(
@@ -266,26 +278,38 @@ class LiveSimulationEngine:
             )
             is_eligible = res_temp.diagnostic_eligible if res_temp else False
 
-            # 8. Anomaly Detection
+            # 8. Anomaly Detection across all signals
             anomaly_res = self.anomaly_detector.detect_frame(
                 residuals=residuals,
             )
             temp_anomaly = anomaly_res.get("engine_temperature_c")
-            anomaly_level = (
-                temp_anomaly.anomaly_level.value
-                if temp_anomaly
-                else AnomalyLevel.NORMAL.value
-            )
-            persistence = (
-                temp_anomaly.persistence_count if temp_anomaly else 0
-            )
-            is_confirmed = (
-                temp_anomaly.is_confirmed if temp_anomaly else False
+            fan_anomaly = anomaly_res.get("cooling_fan_status")
+
+            # Overall confirmation across all sensors
+            is_confirmed = any(
+                e.anomaly_level == AnomalyLevel.ANOMALY and e.is_confirmed
+                for e in anomaly_res.values()
             )
 
             if is_confirmed:
+                anomaly_level = AnomalyLevel.ANOMALY.value
+            elif any(e.anomaly_level == AnomalyLevel.WARNING for e in anomaly_res.values()):
+                anomaly_level = AnomalyLevel.WARNING.value
+            else:
+                anomaly_level = AnomalyLevel.NORMAL.value
+
+            persistence = temp_anomaly.persistence_count if temp_anomaly else 0
+            if fan_anomaly and fan_anomaly.is_confirmed:
+                persistence = fan_anomaly.persistence_count
+
+            if is_confirmed:
                 self.confirmed_anomalies_count += 1
-                if persistence == self.dt_config.anomaly_thresholds.anomaly_persistence_count:
+                if fan_anomaly and fan_anomaly.is_confirmed and fan_anomaly.persistence_count == self.dt_config.anomaly_thresholds.anomaly_persistence_count:
+                    self.log_alert(
+                        f"CRITICAL: Cooling fan actuator failure! Command=ON (Nom=1), but relay failed (Obs=0).",
+                        level="DANGER",
+                    )
+                elif temp_anomaly and temp_anomaly.is_confirmed and temp_anomaly.persistence_count == self.dt_config.anomaly_thresholds.anomaly_persistence_count:
                     self.log_alert(
                         f"CRITICAL: Confirmed thermal anomaly! Residual={temp_residual_val:.2f}°C (Obs={self.latest_observed_telemetry['engine_temperature_c']:.1f}°C, Exp={expected.expected_engine_temperature_c:.1f}°C)",
                         level="DANGER",

@@ -75,7 +75,7 @@ class DashboardSimulationSession:
 
         self.reset(seed=self.seed)
 
-    def reset(self, seed: Optional[int] = None) -> None:
+    def reset(self, seed: Optional[int] = None, initial_temp_c: Optional[float] = None) -> None:
         """Reset simulation state, vehicle physics, network, and digital twin models."""
         if seed is not None:
             self.seed = seed
@@ -96,8 +96,9 @@ class DashboardSimulationSession:
 
         # 2. Vehicle Model & Sensor Generator
         self.dt_config = DigitalTwinConfig()
+        init_temp = initial_temp_c if initial_temp_c is not None else self.dt_config.initial_temp_c
         self.vehicle = VehicleModel(
-            initial_temp_c=self.dt_config.initial_temp_c,
+            initial_temp_c=init_temp,
             ambient_temp_c=self.dt_config.ambient_temp_c,
             fan_on_temp_c=self.dt_config.fan_on_temp_c,
             fan_off_temp_c=self.dt_config.fan_off_temp_c,
@@ -117,6 +118,8 @@ class DashboardSimulationSession:
 
         # 4. Cloud Digital Twin Models
         self.nominal_model = NominalVehicleModel(config=self.dt_config)
+        if initial_temp_c is not None:
+            self.nominal_model.reset(initial_temp_c=initial_temp_c)
         self.state_estimator = DigitalTwinStateEstimator(config=self.dt_config)
         self.freshness_evaluator = TelemetryFreshnessEvaluator(config=self.dt_config)
         self.residual_generator = ResidualGenerator(
@@ -133,7 +136,7 @@ class DashboardSimulationSession:
             "speed_kmh": 45.0,
             "rpm": 2200.0,
             "engine_load": 0.50,
-            "engine_temperature_c": self.dt_config.initial_temp_c,
+            "engine_temperature_c": init_temp,
             "cooling_fan_status": 0,
         }
 
@@ -341,7 +344,17 @@ class DashboardSimulationSession:
             aoi_val = self.network.get_current_aoi(
                 self.vehicle_id, "engine_temperature_c", current_time=t
             )
-            aoi_map = {"engine_temperature_c": aoi_val}
+            supported_sensor_list = (
+                "speed_kmh",
+                "rpm",
+                "engine_load",
+                "engine_temperature_c",
+                "cooling_fan_status",
+            )
+            aoi_map = {
+                sensor: self.network.get_current_aoi(self.vehicle_id, sensor, current_time=t)
+                for sensor in supported_sensor_list
+            }
 
             # 8. Compute Residuals & Apply Freshness Gating
             residuals = self.residual_generator.compute_residuals_for_frame(
@@ -361,36 +374,50 @@ class DashboardSimulationSession:
             )
             is_eligible = res_temp.diagnostic_eligible if res_temp else False
 
-            # 9. Baseline Anomaly Detection & Persistence Gating
+            # 9. Baseline Anomaly Detection & Persistence Gating across all signals
             anomaly_evaluations = self.anomaly_detector.detect_frame(
                 residuals=residuals,
             )
             temp_anomaly = anomaly_evaluations.get("engine_temperature_c")
-            anomaly_level = (
-                temp_anomaly.anomaly_level.value
-                if temp_anomaly
-                else AnomalyLevel.NORMAL.value
+            fan_anomaly = anomaly_evaluations.get("cooling_fan_status")
+
+            # Check if ANY eligible sensor has a confirmed anomaly
+            is_anomaly_confirmed = any(
+                e.anomaly_level == AnomalyLevel.ANOMALY and e.is_confirmed
+                for e in anomaly_evaluations.values()
             )
+
+            if is_anomaly_confirmed:
+                overall_anomaly_level = AnomalyLevel.ANOMALY.value
+            elif any(e.anomaly_level == AnomalyLevel.WARNING for e in anomaly_evaluations.values()):
+                overall_anomaly_level = AnomalyLevel.WARNING.value
+            else:
+                overall_anomaly_level = AnomalyLevel.NORMAL.value
+
+            # Primary persistence count
             persistence = (
                 temp_anomaly.persistence_count if temp_anomaly else 0
             )
-            is_anomaly_confirmed = (
-                temp_anomaly.anomaly_level == AnomalyLevel.ANOMALY
-                and temp_anomaly.is_confirmed
-            ) if temp_anomaly else False
+            if fan_anomaly and fan_anomaly.is_confirmed:
+                persistence = fan_anomaly.persistence_count
 
             if is_anomaly_confirmed:
                 self.confirmed_anomaly_count += 1
                 if self.first_anomaly_time is None:
                     self.first_anomaly_time = t
-                if persistence == self.dt_config.anomaly_thresholds.anomaly_persistence_count:
+                if fan_anomaly and fan_anomaly.is_confirmed and fan_anomaly.persistence_count == self.dt_config.anomaly_thresholds.anomaly_persistence_count:
+                    self._log_alert(
+                        f"CRITICAL: Cooling fan actuator failure! ECU thermostat commanded fan ON (Nom=1), but actuator relay disabled (Obs=0).",
+                        severity="DANGER",
+                    )
+                elif temp_anomaly and temp_anomaly.is_confirmed and temp_anomaly.persistence_count == self.dt_config.anomaly_thresholds.anomaly_persistence_count:
                     self._log_alert(
                         f"CRITICAL: Confirmed thermal anomaly! Residual={temp_res_val:.2f}°C "
                         f"(Obs={self.latest_observed_telemetry['engine_temperature_c']:.1f}°C, "
                         f"Nom={expected.expected_engine_temperature_c:.1f}°C)",
                         severity="DANGER",
                     )
-            elif anomaly_level == AnomalyLevel.WARNING.value and persistence == 1:
+            elif overall_anomaly_level == AnomalyLevel.WARNING.value and persistence == 1:
                 self._log_alert(
                     f"WARNING: Residual exceeded warning threshold ({temp_res_val:.2f}°C). Tracking persistence...",
                     severity="WARNING",
@@ -428,7 +455,7 @@ class DashboardSimulationSession:
                 "aoi_ms": round((aoi_val or 0.0) * 1000.0, 1),
                 "freshness_status": freshness_status,
                 "diagnostic_eligible": is_eligible,
-                "anomaly_level": anomaly_level,
+                "anomaly_level": overall_anomaly_level,
                 "persistence_count": persistence,
                 "is_confirmed": is_anomaly_confirmed,
                 "packets_transmitted": self.total_packets_transmitted,

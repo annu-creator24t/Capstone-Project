@@ -185,7 +185,14 @@ with st.sidebar:
     st.title("🎛️ Simulation Controls")
 
     # A. Playback & Clock Controls
-    st.subheader("1. Execution Engine")
+    start_temp_mode = st.radio(
+        "Thermal State on Reset",
+        options=["Cold Start (85.0°C)", "Warm Operating Temp (95.0°C)"],
+        index=0,
+        help="Cold start warms gradually. Warm operating temp engages ECU fan thermostat immediately for testing fan actuator relay faults.",
+    )
+    init_temp_val = 95.0 if "95.0" in start_temp_mode else 85.0
+
     ctrl_col1, ctrl_col2 = st.columns(2)
     with ctrl_col1:
         if st.session_state.is_running:
@@ -200,7 +207,7 @@ with st.sidebar:
     with ctrl_col2:
         if st.button("↺ Reset", use_container_width=True):
             st.session_state.is_running = False
-            session.reset(seed=42)
+            session.reset(seed=42, initial_temp_c=init_temp_val)
             st.rerun()
 
     step_col1, step_col2 = st.columns(2)
@@ -274,7 +281,9 @@ with st.sidebar:
         )
     elif chosen_fault_type == FaultType.FAN_FAILURE:
         st.markdown(
-            "<div class='warning-callout'><b>Cooling Fan Failure:</b> ECU thermostat signals relay, but cooling fan remains disabled. Engine heat builds when temperature exceeds 95°C.</div>",
+            "<div class='warning-callout'><b>Cooling Fan Failure:</b> ECU thermostat signals relay, but cooling fan remains disabled. "
+            "Under cold start (85°C), the thermostat engages the fan once coolant reaches 95°C (~65s of dynamic driving). "
+            "To test immediate fan actuator failure detection, select <b>Warm Operating Temp (95.0°C)</b> above and click <b>↺ Reset</b>!</div>",
             unsafe_allow_html=True,
         )
     elif chosen_fault_type == FaultType.TEMP_SENSOR_BIAS:

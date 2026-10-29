@@ -71,6 +71,31 @@ class TestDashboardSimulationSession(unittest.TestCase):
         self.assertEqual(self.session.confirmed_anomaly_count, 0)
         self.assertEqual(len(self.session.history), 1)
 
+    def test_cooling_fan_actuator_anomaly(self) -> None:
+        """Verify cooling fan failure triggers categorical actuator anomaly when fan is expected ON."""
+        # Initialize with engine at operating temperature (95°C)
+        self.session.reset(initial_temp_c=95.0)
+        self.session.reconfigure(fault_type=FaultType.FAN_FAILURE, fault_start_s=0.0)
+
+        # Step 10 times (1.0s) with fan expected ON by thermostat
+        for _ in range(10):
+            rec = self.session.step(n_steps=1)
+
+        latest = self.session.get_latest()
+        self.assertEqual(latest["cooling_fan_status"], 0)
+        self.assertTrue(latest["fan_relay_fault"])
+        self.assertTrue(latest["is_confirmed"])
+        self.assertEqual(latest["anomaly_level"], "anomaly")
+        self.assertGreater(self.session.confirmed_anomaly_count, 0)
+
+    def test_reset_with_custom_initial_temp(self) -> None:
+        """Verify reset with custom initial temperature initializes models correctly."""
+        self.session.reset(initial_temp_c=92.5)
+        latest = self.session.get_latest()
+        self.assertAlmostEqual(latest["true_engine_temp_c"], 92.5, delta=0.5)
+        self.assertAlmostEqual(latest["nominal_engine_temp_c"], 92.5, delta=0.5)
+
 
 if __name__ == "__main__":
     unittest.main()
+
