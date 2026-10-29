@@ -358,6 +358,19 @@ class TestExperimentFramework(unittest.TestCase):
             cfgs = build_experiment_configs(MockArgs(group=grp))
             self.assertGreater(len(cfgs), 0)
 
+    def test_controlled_experiment_execution(self) -> None:
+        """Verify reproducible controlled experiment runner creates valid CSV and JSON outputs."""
+        from digital_twin.run_controlled_experiment import run_controlled_experiment
+        df = run_controlled_experiment(
+            duration_s=1.0,
+            dt_s=0.1,
+            initial_temp_c=95.0,
+            output_dir=self.test_dir,
+        )
+        self.assertEqual(len(df), 20)  # 10 steps normal + 10 steps fault
+        self.assertTrue(os.path.exists(os.path.join(self.test_dir, "controlled_fault_experiment.csv")))
+        self.assertTrue(os.path.exists(os.path.join(self.test_dir, "controlled_fault_experiment.json")))
+
 
 if __name__ == "__main__":
     unittest.main()

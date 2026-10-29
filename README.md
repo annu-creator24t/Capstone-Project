@@ -62,24 +62,37 @@ This project develops an **Uncertainty- and Cost-Aware Active Digital Twin (ADT)
 
 ---
 
-## 🚀 3. Current Implementation Status (Module 1 — Vehicle Simulator)
+## 🚀 3. Current Implementation Status
 
-### Implemented Features
-- **Physical Powertrain & Thermal Dynamics (`simulator/vehicle_model.py`):**
-  - Dynamic differential equation for engine heat generation ($\dot{Q}_{\text{in}}$) based on RPM and load.
-  - Multi-factor heat dissipation ($\dot{Q}_{\text{out}}$) based on ambient temperature, vehicle speed airflow, and ECU thermostat cooling fan actuation with hysteresis ($95^\circ\text{C}$ ON / $90^\circ\text{C}$ OFF).
-- **Fault Injection Engine (`simulator/fault_injector.py`):**
-  - Supports controlled, time-scheduled fault modes:
-    - `normal`: Standard vehicle operation.
-    - `high_load`: Engine overload driving profile.
-    - `fan_failure`: Actuator/relay failure (fan disabled).
-    - `temp_sensor_bias`: Sensor calibration drift with configurable offset $\Delta T$ in °C.
-    - `temp_sensor_freeze`: Sensor locked at constant reading.
-    - `missing_sensor_data`: Missing or dropped telemetry packets.
-- **Sensor Telemetry Generator (`simulator/sensor_generator.py`):**
-  - Realistic Gaussian measurement noise.
-  - Reproducible, seedable pseudo-random generator.
-  - Standardized JSON telemetry format conforming to schema.
+### Module 1: Physical Powertrain & Thermal Vehicle Simulator (`simulator/`)
+- **Powertrain & Thermal Dynamics (`vehicle_model.py`):**
+  - Dynamic differential equation for engine heat generation ($\dot{Q}_{\text{in}}$) driven by engine speed and load.
+  - Multi-factor heat dissipation ($\dot{Q}_{\text{out}}$) modeling ambient convection, vehicle airspeed ram-air cooling, and ECU thermostat cooling fan hysteresis ($95^\circ\text{C}$ ON / $90^\circ\text{C}$ OFF).
+- **Fault Injection Engine (`fault_injector.py`):**
+  - Parameterized, time-scheduled fault modes: `normal`, `high_load`, `fan_failure`, `temp_sensor_bias`, `temp_sensor_freeze`, and `missing_sensor_data`.
+- **Sensor Telemetry Generator (`sensor_generator.py`):**
+  - Adds Gaussian measurement noise with configurable standard deviations.
+  - Reproducible pseudo-random seeding for rigorous experimental repeatability.
+
+### Module 2: Intermittent Network Emulator & Freshness Layer (`network/`)
+- **Stochastic Delay & Jitter (`delay_model.py`):** Supports fixed, uniform, and Gaussian cellular propagation latency profiles.
+- **Packet Drop Engine (`packet_loss.py`):** Configurable packet drop probability simulating cellular signal fade and intermittent disconnection.
+- **Priority Queue & Bandwidth Limiter (`packet_queue.py`, `bandwidth_model.py`):** Telemetry priority scheduling, serialization delay, and bandwidth throttling.
+- **Age of Information (AoI) Tracker (`aoi_tracker.py`):** Computes continuous sawtooth data age $\Delta(t) = t - u(t)$, discrete sample averages, and time-integrated average AoI across all vehicle sensor channels.
+
+### Module 3: Cloud Digital Twin Estimator & Diagnostics (`digital_twin/`)
+- **Physics-Informed Nominal State Twin (`nominal_model.py`):** Reconstructs expected vehicle states in the cloud based on nominal equations.
+- **Cloud State Estimator (`state_estimator.py`):** Ingests asynchronous, delayed, and out-of-order telemetry packets.
+- **Residual Generator (`residual_generator.py`):** Evaluates raw and defensive relative residuals $r(t) = y_{\text{obs}}(t) - \hat{y}(t)$ across continuous and categorical signals.
+- **Telemetry Freshness Evaluator (`telemetry_freshness.py`):** Qualifies data as Fresh, Aging, Stale, Invalid, or Missing.
+- **Baseline Anomaly Detector (`anomaly_detector.py`):** Two-level thresholding (Warning, Anomaly) with persistence filtering to suppress transient alert chatter, plus categorical actuator failure detection.
+
+### Module 7: Interactive Engineering & Research Dashboards
+- **Streamlit Research Cockpit (`app.py`):**
+  - Runs at `http://localhost:8501`.
+  - Features real-time telemetry gauges, dynamic thermal curves, live fault injection, network impairment sliders, Age-of-Information metrics, and an integrated Research Campaign Explorer with download capabilities.
+- **High-Speed HTML5/WebSocket Cockpit (`dashboard/server.py`):**
+  - Runs at `http://localhost:8050` with glassmorphic UI gauges and real-time step controls.
 
 ### Standard Telemetry Schema
 ```json
@@ -133,9 +146,21 @@ python -m pytest
 
 ### 4. Launch Interactive Research & Analytics Dashboard
 ```bash
+# Primary Streamlit Dashboard (Port 8501)
 python -m streamlit run app.py
+# Or double-click: run_dashboard.bat
+
+# Alternative High-Speed Telemetry Cockpit (Port 8050)
+python dashboard/server.py --port 8050
+# Or double-click: run_cockpit.bat
 ```
-Opens the interactive cockpit at `http://localhost:8501` featuring real-time vehicle kinematics, thermal dynamics, fault injection, wireless network impairments, digital twin state tracking, and research campaign analytics.
+Opens the interactive cockpit featuring real-time vehicle kinematics, thermal dynamics, fault injection, wireless network impairments, digital twin state tracking, and research campaign analytics.
+
+### 5. Generate Capstone Documentation PDF Guide
+```bash
+python generate_documentation_pdf.py
+```
+Produces `Capstone_Project_Comprehensive_Guide.pdf` detailing complete architectural breakdowns, mathematical equations, and verification outputs.
 
 ---
 
