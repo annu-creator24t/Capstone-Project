@@ -27,5 +27,7 @@ Thumbs.db
 logs/
 results/
 experiments/results/
+experiments/experiment_manifest.json
 data/
 *.pdf
+
