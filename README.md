@@ -156,12 +156,6 @@ python dashboard/server.py --port 8050
 ```
 Opens the interactive cockpit featuring real-time vehicle kinematics, thermal dynamics, fault injection, wireless network impairments, digital twin state tracking, and research campaign analytics.
 
-### 5. Generate Capstone Documentation PDF Guide
-```bash
-python generate_documentation_pdf.py
-```
-Produces `Capstone_Project_Comprehensive_Guide.pdf` detailing complete architectural breakdowns, mathematical equations, and verification outputs.
-
 ---
 
 ## 🔬 5. Research Methodology & Prior Art Framing
